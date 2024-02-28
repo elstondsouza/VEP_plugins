@@ -57,8 +57,7 @@ limitations under the License.
 
 
     The following edits were made by Elston D'Souza to ensure that UTRannotator works with VuTR (at rarediseasegenomics.org)
-     
-    - Ensure that the plugin works 
+    - Ensure that the plugin works for uStop lost variants where if the next stop codon is in the CDS, the values of the stop codon position is returned rather NA
     - Ensure that we know the positions of the uORFs / oORFs that are being disrupted 
     - Use translational efficiency rather than Kozak Strength 
     - Remove the smORF evidence 
