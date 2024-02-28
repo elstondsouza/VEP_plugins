@@ -442,7 +442,6 @@ sub uSTOP_gained {
   my $uSTOP_gained_KozakStrength = ""; # the Kozak strength of the the disrupting uORF
   my $uSTOP_gained_ref_type = ""; # the type of uORF being disrupted - any of the following: uORF, inframe_oORF,OutOfFrame_oORF
   my $uSTOP_gained_newSTOPDistanceToCDS = ""; # the distance between the gained uSTOP to the start of the CDS
-  my $uSTOP_gained_evidence = ""; # the translation evidence of the disrupted uORF
 
   #indicate whether the variant creates a stop codon
   my $flag = 0;
@@ -534,17 +533,12 @@ sub uSTOP_gained {
 
         $uSTOP_gained_ref_StartDistanceToCDS = $utr_length - $start_pos;
         $uSTOP_gained_newSTOPDistanceToCDS = $mut_utr_length - $mut_stop;
-
-        #find evidence in added reference file
-        $uSTOP_gained_evidence = (exists $self->{uORF_evidence})? $self->find_uorf_evidence($UTR_info,$chr,$start_pos): "NA";
-
         my %uORF_effect = (
                 "ref_type" => $uSTOP_gained_ref_type,
                 "ref_StartDistanceToCDS" => $uSTOP_gained_ref_StartDistanceToCDS,
                 "newSTOPDistanceToCDS" => $uSTOP_gained_newSTOPDistanceToCDS,
                 "KozakContext" => $uSTOP_gained_KozakContext,
                 "KozakStrength" => $uSTOP_gained_KozakStrength,
-                "Evidence" => $uSTOP_gained_evidence,
               );
 
         $output_flag = "5_prime_UTR_stop_codon_gain_variant";
@@ -581,7 +575,6 @@ sub uSTOP_lost {
   my $uSTOP_lost_FrameWithCDS = ""; # the frame of the uORF with respect to CDS
   my $uSTOP_lost_KozakContext = ""; # the Kozak context sequence of the uORF with the lost stop codon
   my $uSTOP_lost_KozakStrength = ""; # the Kozak strength of the uORF with the lost stop codon
-  my $uSTOP_lost_evidence = ""; # whether this uORF has any evidence of being translated
   ###
 
   my $current_kozak = "";
@@ -676,17 +669,12 @@ sub uSTOP_lost {
         else {
           $uSTOP_lost_FrameWithCDS = "inFrame";
         }
-        #find evidence from sorf
-
-        $uSTOP_lost_evidence= (exists $self->{uORF_evidence})? $self->find_uorf_evidence($UTR_info,$chr,$start_pos): "NA";
-
         my %uORF_effect = (
           "AltStop" => $uSTOP_lost_AltStop,
           "AltStopDistanceToCDS" => $uSTOP_lost_AltStopDistanceToCDS,
           "FrameWithCDS" => $uSTOP_lost_FrameWithCDS,
           "KozakContext" => $uSTOP_lost_KozakContext,
           "KozakStrength" => $uSTOP_lost_KozakStrength,
-          "Evidence" => $uSTOP_lost_evidence,
         );
 
         $output_flag = "5_prime_UTR_stop_codon_loss_variant";
@@ -723,7 +711,6 @@ sub uAUG_lost {
   my $uAUG_lost_DistanceToSTOP = ""; # the distance of the lost uAUG to stop codon (could be in CDS)
   my $uAUG_lost_KozakContext = ""; # the Kozak context sequence of the lost uAUG
   my $uAUG_lost_KozakStrength = ""; # the strength of KozakContext of the lost uAUG
-  my $uAUG_lost_evidence = ""; # whether this uAUG has any evidence of being translated
 
   my $current_kozak = "";
   my $current_kozak_strength = "";
@@ -811,8 +798,6 @@ sub uAUG_lost {
         $uAUG_lost_DistanceToSTOP = "NA"
       }
 
-      $uAUG_lost_evidence= (exists $self->{uORF_evidence})? $self->find_uorf_evidence($UTR_info,$chr,$start_pos): "NA";
-
       my %uORF_effect = (
           "type" => $uAUG_lost_type,
           "CapDistanceToStart" =>$start_pos,
@@ -820,7 +805,6 @@ sub uAUG_lost {
           "DistanceToStop" => $uAUG_lost_DistanceToSTOP,
           "KozakContext" => $uAUG_lost_KozakContext,
           "KozakStrength" => $uAUG_lost_KozakStrength,
-          "Evidence" => $uAUG_lost_evidence,
         );
 
       $output_flag = "5_prime_UTR_premature_start_codon_loss_variant";
@@ -858,7 +842,6 @@ sub uFrameshift {
   my $uFrameshift_alt_type_length = ""; # the length of the uORF with of the alternative allele
   my $uFrameshift_KozakContext = ""; # the Kozak context sequence of the disrupted uORF
   my $uFrameshift_KozakStrength = ""; # the Kozak strength of the disrupted uORF
-  my $uFrameshift_evidence = ""; # whehter there is translation evidence for the disrupted uORF
 
   #indicate whether the variant ever introduce a frameshift variant
   my $flag_uORF;
@@ -974,9 +957,6 @@ sub uFrameshift {
           $uFrameshift_alt_type_length = "NA";
         }
 
-        #find evidence in added reference file
-        $uFrameshift_evidence= (exists $self->{uORF_evidence})? $self->find_uorf_evidence($UTR_info,$chr,$start_pos): "NA";
-
         my %uORF_effect = (
             "ref_type" => $uFrameshift_ref_type,
             "ref_type_length" => $uFrameshift_ref_type_length,
@@ -985,7 +965,6 @@ sub uFrameshift {
             "alt_type_length" => $uFrameshift_alt_type_length,
             "KozakContext" => $uFrameshift_KozakContext,
             "KozakStrength" => $uFrameshift_KozakStrength,
-            "Evidence" => $uFrameshift_evidence,
         );
 
         $output_flag = "5_prime_UTR_uORF_frameshift_variant";
@@ -1300,16 +1279,5 @@ sub get_allele_exon_pos {
   return ($ref_start, $ref_end);
 }
 
-sub find_uorf_evidence {
-  my ($self,$UTR_info,$chr,$start_pos)=@_;
-
-  my %utr_pos = %{$self->chr_position($UTR_info)};
-  my $start_chr_pos = $utr_pos{$start_pos};
-
-  my $query = ($chr=~/chr/i)? $chr . ":" . $start_chr_pos : "chr" . $chr . ":" . $start_chr_pos;
-  my $evidence = $self->{uORF_evidence}->{$query}? "True" : "False";
-
-  return $evidence;
-}
 
 1;
