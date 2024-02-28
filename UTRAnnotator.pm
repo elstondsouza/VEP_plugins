@@ -54,6 +54,15 @@ limitations under the License.
     Please cite the UTRannotator publication alongside the Ensembl VEP if you use this resource -
     Annotating high-impact 5'untranslated region variants with the UTRannotator Zhang, X., Wakeling, M.N., Ware, J.S, Whiffin, N. Bioinformatics; doi: https://academic.oup.com/bioinformatics/advance-article/doi/10.1093/bioinformatics/btaa783/5905476
 
+
+
+    The following edits were made by Elston D'Souza to ensure that UTRannotator works with VuTR (at rarediseasegenomics.org)
+     
+    - Ensure that the plugin works 
+    - Ensure that we know the positions of the uORFs / oORFs that are being disrupted 
+    - Use translational efficiency rather than Kozak Strength 
+    - Remove the smORF evidence 
+
 =cut
 
 
