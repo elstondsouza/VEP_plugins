@@ -86,29 +86,30 @@ sub new {
 
   my $param_hash = $self->params_to_hash();
 
+  # Read the translational efficiency file
   if (-e $param_hash->{file}){
     open my $fh, "<", $param_hash->{file} or die $!;
-    my %uORF_evidence;
+    my %translational_efficiency;
 
     while (<$fh>) {
       chomp;
-      my ($chr, $pos, $gene, $strand, $type, $stop_pos) = split /\t/;
-      next if $chr eq "chr" && $pos eq "pos";
+      my ($context, $efficiency, $lower_bound, $upper_bound) = split /\t/;
+      next if $context eq "sequence";
 
-      die "$chr does not exist; Check your reference file." unless ($chr =~ m/^(chr*)/);
-      die "Position $pos is not a number; Check your reference file." unless looks_like_number($pos);
+      # Convert the context to lower case 
+      $context = lc($context);
 
-      my $key = $chr . ":" . $pos; # chr has 'chr' prefix
-      $uORF_evidence{$key} = 1;
+      # Replace the "u" with a "t"
+      $context =~ s/u/t/g;
+
+      $translational_efficiency{$context} = $efficiency;
     }
-
     close $fh;
 
-  $self->{uORF_evidence} = \%uORF_evidence;
+  $self->{translational_efficiency} = \%translational_efficiency;
 
   } else {
-      printf "Warning: small ORF file not found. For human, you could use the curated list of uORFs found in the repository (https://github.com/Ensembl/UTRannotator):\n" .
-      "'uORF_starts_ends_GRCh37_PUBLIC.txt' for GRCh37 or 'uORF_starts_ends_GRCh38_PUBLIC.txt' for GRCh38.\n";
+      printf "Warning: translational efficiency file not found. Please check the file path.\n";
   }
 
   # Kozak-Strength Class
