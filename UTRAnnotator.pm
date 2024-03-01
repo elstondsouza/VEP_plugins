@@ -54,8 +54,6 @@ limitations under the License.
     Please cite the UTRannotator publication alongside the Ensembl VEP if you use this resource -
     Annotating high-impact 5'untranslated region variants with the UTRannotator Zhang, X., Wakeling, M.N., Ware, J.S, Whiffin, N. Bioinformatics; doi: https://academic.oup.com/bioinformatics/advance-article/doi/10.1093/bioinformatics/btaa783/5905476
 
-
-
     The following edits were made by Elston D'Souza to ensure that UTRannotator works with VuTR (at rarediseasegenomics.org)
     - Ensure that the plugin works for uStop lost variants where if the next stop codon is in the CDS, the values of the stop codon position is returned rather NA
     - Ensure that we know the positions of the uORFs / oORFs that are being disrupted 
@@ -81,11 +79,10 @@ sub feature_types {
 sub new {
   my $class = shift;
   my $self = $class->SUPER::new(@_);
-
+  
   printf "\nWarning: no FASTA file specified (--fasta). VEP running will take a long time." if ($self->config->{fasta} eq "");
 
   my $param_hash = $self->params_to_hash();
-
   # Read the translational efficiency file
   if (-e $param_hash->{file}){
     open my $fh, "<", $param_hash->{file} or die $!;
@@ -107,18 +104,11 @@ sub new {
     close $fh;
 
   $self->{translational_efficiency} = \%translational_efficiency;
+  printf "Translational efficiency file loaded.\n";
 
   } else {
       printf "Warning: translational efficiency file not found. Please check the file path.\n";
   }
-
-  # Kozak-Strength Class
-  my %kozak_strength;
-  $kozak_strength{1}='Weak';
-  $kozak_strength{2}='Moderate';
-  $kozak_strength{3}='Strong';
-
-  $self->{kozak_strength} = \%kozak_strength;
 
   return $self;
 }
@@ -137,7 +127,7 @@ sub get_header_info {
 
 sub run {
   my ($self, $tva) = @_;
-
+  
   #only annotate the effect if the variant is 5_prime_UTR_variant
   return {} unless grep {$_->SO_term eq '5_prime_UTR_variant'}  @{$tva->get_all_OverlapConsequences};
 
@@ -168,6 +158,9 @@ sub run {
 
   #retrieve the five prime utr sequence
   my $five_prime_seq = (defined $t->five_prime_utr? $t->five_prime_utr->seq(): undef);
+
+  #retrieve the transcript sequence 
+  my $transcript_seq = $t->seq(); # TODO:  DOES THIS WORK???
 
   #Type: five_prime_feature - Bio::EnsEMBL::Feature
   my $UTRs = $t->get_all_five_prime_UTRs();
@@ -205,12 +198,24 @@ sub run {
   if(defined($mut_pos) && defined($end_pos)) {
 
     my @sequence = split //, $five_prime_seq;
-    my $mut_utr_seq = $self->mut_utr_sequence(
-        \@sequence,$mut_pos,
+    my $mut_utr_seq = $self->mut_this_sequence(
+        \@sequence,
+        $mut_pos,
         $self->{ref_coding},
         $self->{alt_coding},
         $tr_strand
     );
+  
+    my @transcript_sequence = split //, $transcript_seq;
+    my $mut_transcript_seq = $self->mut_this_sequence(
+        \@transcript_sequence,
+        $mut_pos,
+        $end_pos,
+        $self->{ref_coding},
+        $self->{alt_coding},
+        $tr_strand
+    );
+    my @mut_transcript_seq = split //,$mut_transcript_seq;
 
     my @utr_sequence = split //, $UTR_info{seq};
     my %existing_uORF = %{$self->existing_uORF(\@utr_sequence)};
@@ -220,12 +225,18 @@ sub run {
 
     my @start = @{$self->get_ATG_pos(\@utr_sequence)};
 
-    %uAUG_gained = %{$self->uAUG_gained(\%variant,\%UTR_info, $mut_pos, $mut_utr_seq, \%existing_utr_uORF)};
-    %uSTOP_lost = %{$self->uSTOP_lost(\%variant,\%UTR_info, $mut_pos, $mut_utr_seq, \%existing_uORF, \%existing_utr_uORF)};
-    %uAUG_lost = %{$self->uAUG_lost(\%variant,\%UTR_info, $mut_pos, $mut_utr_seq, \%existing_uORF, \@start)};
-    %uSTOP_gained = %{$self->uSTOP_gained(\%variant,\%UTR_info, $mut_pos, $end_pos, $mut_utr_seq, \%existing_uORF, \%existing_utr_uORF, \@start)};
-    %uFrameshift = %{$self->uFrameshift(\%variant,\%UTR_info, $mut_pos, $end_pos, $mut_utr_seq, \%existing_uORF, \%existing_utr_uORF, \@start)};
-
+    %uAUG_gained = %{$self->uAUG_gained(\%variant, 
+      \%UTR_info, 
+      $mut_pos, 
+      $mut_utr_seq, 
+      $mut_transcript_seq, 
+      \%existing_utr_uORF
+    )
+    };
+    %uSTOP_lost = %{$self->uSTOP_lost(\%variant,\%UTR_info, $mut_pos, $mut_utr_seq, $mut_transcript_seq, \%existing_uORF, \%existing_utr_uORF)};
+    %uAUG_lost = %{$self->uAUG_lost(\%variant,\%UTR_info, $mut_pos, $mut_utr_seq, $mut_transcript_seq, \%existing_uORF, \@start)};
+    %uSTOP_gained = %{$self->uSTOP_gained(\%variant,\%UTR_info, $mut_pos, $end_pos, $mut_utr_seq, $mut_transcript_seq, \%existing_uORF, \%existing_utr_uORF, \@start)};
+    %uFrameshift = %{$self->uFrameshift(\%variant,\%UTR_info, $mut_pos, $end_pos, $mut_utr_seq,  $mut_transcript_seq, \%existing_uORF, \%existing_utr_uORF, \@start)};
   }
 
   my %five_prime_flag = (
@@ -296,7 +307,7 @@ sub run {
 sub uAUG_gained {
   # Description: annotate if a five_prime_UTR_variant creates ATG
 
-  my ($self, $variant_info,$UTR_info, $mut_pos, $mut_utr_seq, $existing_utr_uorf) = @_;
+  my ($self, $variant_info,$UTR_info, $mut_pos, $mut_utr_seq, $mut_transcript_seq, $existing_utr_uorf) = @_;
 
   my $pos = $variant_info->{pos};
   my $ref = $variant_info->{ref};
@@ -307,16 +318,14 @@ sub uAUG_gained {
 
   #return annotators
   my $uAUG_gained_DistanceToCDS = "";  # the distance between the gained uAUG to CDS
-  my $uAUG_gained_KozakContext = "";  # the Kozak context sequence of the gained uAUG
-  my $uAUG_gained_KozakStrength = ""; # the Kozak strength of the gained uAUG
   my $uAUG_gained_type = ""; # the type of uORF created - any of the following: uORF, inframe_oORF,OutOfFrame_oORF
   my $uAUG_gained_DistanceFromCap = ""; # the distance between the gained uAUG to the start of the five prime UTR
   my $uAUG_gained_DistanceToStop = ""; #the distance between the gained uAUG to stop codon (could be in CDS)
+  my $mut_te_context = "";
+  my $mut_te_efficiency = "-";
 
   #indicate whether the variant creates a ATG
   my $flag = 0;
-  my $current_kozak = "";
-  my $current_kozak_strength ="";
 
   #the relative position of input variant in the UTR sequence
 
@@ -328,6 +337,7 @@ sub uAUG_gained {
   my $alt_coding = $self->{ref_coding};
 
   my @mut_utr_seq = split //,$mut_utr_seq;
+  my @mut_transcript_seq = split //,$mut_transcript_seq;
   my $mut_utr_length = @mut_utr_seq;
 
   #get the nt sequence that might have the pos_A for a new ATG codon
@@ -354,26 +364,41 @@ sub uAUG_gained {
     ################################################################################
     #annotator 2: determine kozak context;
     ################################################################################
-    if ((($pos_A-3)>=0)&&($mut_utr_seq[($pos_A+3)])){
-      $current_kozak = $mut_utr_seq[($pos_A-3)].$mut_utr_seq[($pos_A-2)].$mut_utr_seq[$pos_A-1]."ATG".$mut_utr_seq[$pos_A+3];
+
+
+    # The translational efficiency context is 6 nucleotides before and two nucleotides after the ATG
+    # I.e. XXXXXXXATGXX where X is the context
+    if ((($pos_A-6)>=0)&&($mut_transcript_seq[($pos_A+3)])){
+        $mut_te_context = $mut_transcript_seq [$pos_A-6].$mut_transcript_seq [$pos_A-5].$mut_transcript_seq[$pos_A-4].$mut_transcript_seq[$pos_A-3].$mut_transcript_seq [$pos_A-2].$mut_transcript_seq [$pos_A-1]."ATG".$mut_transcript_seq [$pos_A+3].$mut_transcript_seq [$pos_A+4];
+        $mut_te_efficiency = $self->{translational_efficiency}{$mut_te_context};
     }
     else{
-      $current_kozak = '-';
+      $mut_te_context = '-';
+      $mut_te_efficiency = '-';
     }
-    #get the strength of kozak context
-    if ($current_kozak !~ /-/){
-      my @split_kozak = split //, $current_kozak;
-      $current_kozak_strength = 1;
-      if ((($split_kozak[0] eq 'A')||($split_kozak[0] eq 'G'))&&($split_kozak[6] eq 'G')){
-        $current_kozak_strength = 3;
-      }
-      elsif ((($split_kozak[0] eq 'A')||($split_kozak[0] eq 'G'))||($split_kozak[6] eq 'G')){
-        $current_kozak_strength = 2;
-      }
-    }
+    # if ((($pos_A-3)>=0)&&($mut_utr_seq[($pos_A+3)])){
+    #   $current_kozak = $mut_utr_seq[($pos_A-3)].$mut_utr_seq[($pos_A-2)].$mut_utr_seq[$pos_A-1]."ATG".$mut_utr_seq[$pos_A+3];
+    # }
+    # else{
+    #   $current_kozak = '-';
+    # }
+    # #get the strength of kozak context
+    # if ($current_kozak !~ /-/){
+    #   my @split_kozak = split //, $current_kozak;
+    #   $current_kozak_strength = 1;
+    #   if ((($split_kozak[0] eq 'A')||($split_kozak[0] eq 'G'))&&($split_kozak[6] eq 'G')){
+    #     $current_kozak_strength = 3;
+    #   }
+    #   elsif ((($split_kozak[0] eq 'A')||($split_kozak[0] eq 'G'))||($split_kozak[6] eq 'G')){
+    #     $current_kozak_strength = 2;
+    #   }
+    # }
 
-    $uAUG_gained_KozakContext=$current_kozak;
-    $uAUG_gained_KozakStrength=$self->{kozak_strength}{$current_kozak_strength}? $self->{kozak_strength}{$current_kozak_strength}:$current_kozak_strength;
+    my $uAUG_gained_TEContext=$mut_te_context;
+    my $uAUG_gained_TEStrength=$mut_te_efficiency;
+
+    # $uAUG_gained_KozakContext=$current_kozak;
+    # $uAUG_gained_KozakStrength=$self->{kozak_strength}{$current_kozak_strength}? $self->{kozak_strength}{$current_kozak_strength}:$current_kozak_strength;
 
 
     ################################################################################
@@ -404,15 +429,17 @@ sub uAUG_gained {
 
 
     my %uORF_effect = (
-            "KozakContext" => $uAUG_gained_KozakContext,
-            "KozakStrength" => $uAUG_gained_KozakStrength,
+            "TE_Context" => $uAUG_gained_TEContext,
+            "TE_Strength" => $uAUG_gained_TEStrength,
+            # "KozakContext" => $uAUG_gained_KozakContext,
+            # "KozakStrength" => $uAUG_gained_KozakStrength,
             "DistanceToCDS" => $uAUG_gained_DistanceToCDS,
             "type" => $uAUG_gained_type,
             "DistanceToStop" => $uAUG_gained_DistanceToStop,
             "CapDistanceToStart" => $uAUG_gained_DistanceFromCap,
     );
 
-    $output_flag = "5_prime_UTR_premature_start_codon_gain_variant";
+    $output_flag = "5_prime_UTR_start_codon_gain_variant";
     my $size = (keys %output_effects) + 1;
     $output_effects{$size} = \%uORF_effect;
   }
@@ -426,7 +453,7 @@ sub uAUG_gained {
 sub uSTOP_gained {
   # Description: annotate whether a five_prime_UTR_variant creates new stop codon. It only evaluate SNVs.
 
-  my ($self, $variant_info,$UTR_info, $mut_pos, $end_pos, $mut_utr_seq, $existing_ref_uORF, $mut_uORF, $start) = @_;
+  my ($self, $variant_info,$UTR_info, $mut_pos, $end_pos, $mut_utr_seq, $mut_transcript_seq, $existing_ref_uORF, $mut_uORF, $start) = @_;
 
   my $chr = $variant_info->{chr};
   my $pos = $variant_info->{pos};
@@ -560,7 +587,7 @@ sub uSTOP_lost {
 
   # Description: annotate if a five_prime_UTR_varint removes a stop codon of an existing uORF (given that uORF does not not change)
 
-  my ($self, $variant_info, $UTR_info, $mut_pos, $mut_utr_seq, $existing_uORF, $mut_uORF) = @_;
+  my ($self, $variant_info, $UTR_info, $mut_pos, $mut_utr_seq, $mut_transcript_seq, $existing_uORF, $mut_uORF) = @_;
 
   my $chr = $variant_info->{chr};
   my $pos = $variant_info->{pos};
@@ -694,7 +721,7 @@ sub uSTOP_lost {
 sub uAUG_lost {
   # Description: annotate if a five_prime_UTR_varint removes a start codon of an existing uORF
 
-  my ($self, $variant_info, $UTR_info, $mut_pos, $mut_utr_seq, $existing_ref_uORF, $start) = @_;
+  my ($self, $variant_info, $UTR_info, $mut_pos, $mut_utr_seq, $mut_transcript_seq, $existing_ref_uORF, $start) = @_;
 
   my $chr = $variant_info->{chr};
   my $pos = $variant_info->{pos};
@@ -824,7 +851,7 @@ sub uFrameshift {
 
   # Description: annotate if a five_prime_UTR_varint create a frameshift in existing uORFs
 
-  my ($self, $variant_info, $UTR_info, $mut_pos, $end_pos, $mut_utr_seq, $existing_uORF, $mut_uORF, $start) = @_;
+  my ($self, $variant_info, $UTR_info, $mut_pos, $end_pos, $mut_utr_seq, $mut_transcript_seq, $existing_uORF, $mut_uORF, $start) = @_;
 
   my $chr = $variant_info->{chr};
   my $pos = $variant_info->{pos};
@@ -1145,7 +1172,7 @@ sub get_alt_coding {
 }
 
 
-=head2 mut_utr_sequence
+=head2 mut_this_sequence
 
   Description:  get the mutated five prime UTR sequence
   Return: Mutated UTR sequence
@@ -1154,7 +1181,7 @@ sub get_alt_coding {
 =cut
 
 
-sub mut_utr_sequence {
+sub mut_this_sequence {
   my ($self,$seq,$mut_pos,$ref_coding,$alt_coding,$strand) = @_;
 
   my @sequence = @{$seq};
@@ -1166,6 +1193,11 @@ sub mut_utr_sequence {
 
   return $mut_sequence;
 }
+
+
+
+
+
 
 sub transform_hash_to_string {
   my ($self,$hash) = @_;
